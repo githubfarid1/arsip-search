@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface SearchResult {
   id: string
@@ -45,6 +45,10 @@ export default function Home() {
   const [reindexing, setReindexing] = useState(false)
   const [reindexMsg, setReindexMsg] = useState<string | null>(null)
   const [dark, setDark] = useState(true)
+  const [pdfModal, setPdfModal] = useState<{result: SearchResult | null; watermark: boolean}>({result: null, watermark: false})
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
   const LIMIT = 20
 
   useEffect(() => {
@@ -53,6 +57,17 @@ export default function Home() {
     else if (stored === 'dark') setDark(true)
     else setDark(window.matchMedia('(prefers-color-scheme: dark)').matches)
   }, [])
+
+  const openPdfModal = (result: SearchResult, watermark: boolean) => {
+    setPdfModal({result, watermark})
+    setPdfError(null)
+  }
+
+  const closePdfModal = () => {
+    setPdfModal({result: null, watermark: false})
+    setPdfError(null)
+    setPdfLoading(false)
+  }
 
   const toggleTheme = () => {
     setDark(d => {
@@ -144,8 +159,106 @@ export default function Home() {
     )
   }
 
+  const pdfUrl = pdfModal.result
+    ? `/api/pdf/${pdfModal.result.id}?watermark=${pdfModal.watermark}`
+    : null
+
   return (
     <div className="min-h-screen flex flex-col dark:bg-slate-900 bg-slate-50">
+      {/* PDF Viewer Modal */}
+      {pdfModal.result && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={closePdfModal}>
+          <div
+            className="relative w-[95vw] h-[95vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl bg-white dark:bg-slate-800"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${
+                  pdfModal.result.source_table === 'arsip_tata_item'
+                    ? (dark ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-800')
+                    : (dark ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-800')
+                }`}>
+                  {getTableLabel(pdfModal.result.source_table)}
+                </span>
+                <span className="text-sm font-mono font-medium dark:text-white text-slate-900 truncate">
+                  {pdfModal.result.code || pdfModal.result.id}
+                </span>
+                {pdfModal.watermark && (
+                  <span className="px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-300 rounded">
+                    WATERMARKED
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => openPdfModal(pdfModal.result!, !pdfModal.watermark)}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition ${
+                    pdfModal.watermark
+                      ? 'bg-slate-100 dark:bg-slate-700 dark:text-slate-300 text-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      : 'bg-red-600 hover:bg-red-500 text-white'
+                  }`}
+                  title={pdfModal.watermark ? 'Tampilkan tanpa watermark' : 'Tampilkan dengan watermark COPY'}
+                >
+                  {pdfModal.watermark ? 'Tanpa Watermark' : 'Watermark COPY'}
+                </button>
+                <a
+                  href={pdfUrl || '#'}
+                  download={`${pdfModal.result.code || pdfModal.result.id}.pdf`}
+                  className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download
+                </a>
+                <button
+                  onClick={closePdfModal}
+                  className="p-1.5 rounded-lg dark:bg-slate-700 dark:hover:bg-slate-600 bg-slate-100 hover:bg-slate-200 transition"
+                >
+                  <svg className="w-4 h-4 dark:text-slate-300 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* PDF Content */}
+            <div className="flex-1 overflow-hidden bg-slate-100 dark:bg-slate-900 relative">
+              {pdfError ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <svg className="w-12 h-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-slate-500 dark:text-slate-400">{pdfError}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    PDF tidak ditemukan untuk record ini. Pastikan path PDF benar dan PDF_BASE_PATH di server sudah diset.
+                  </p>
+                </div>
+              ) : (
+                <iframe
+                  ref={iframeRef}
+                  src={pdfUrl || ''}
+                  className="w-full h-full border-0"
+                  title="PDF Viewer"
+                  onLoad={() => setPdfLoading(false)}
+                  onError={() => { setPdfLoading(false); setPdfError('Gagal memuat PDF') }}
+                />
+              )}
+              {pdfLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-slate-900/80">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Memuat PDF...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="dark:border-slate-700 dark:bg-slate-900/80 bg-white/80 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-4">
@@ -311,6 +424,29 @@ export default function Home() {
                     {result.page_count && <span>Halaman: <span className="dark:text-slate-300 text-slate-700">{result.page_count}</span></span>}
                   </div>
                 )}
+
+                {/* PDF Buttons */}
+                <div className="mt-3 pt-2 flex gap-2 border-t border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => { setPdfLoading(true); openPdfModal(result, false) }}
+                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Lihat PDF
+                  </button>
+                  <button
+                    onClick={() => { setPdfLoading(true); openPdfModal(result, true) }}
+                    className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    PDF + Watermark
+                  </button>
+                </div>
               </div>
             ))}
 

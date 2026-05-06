@@ -1,11 +1,13 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List
 import meilisearch
 import pymysql
 import os
+import io
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +34,7 @@ MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3307"))
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root123")
 MYSQL_DB = os.getenv("MYSQL_DB", "arsipserverdb2")
+PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/home/arsip/nas-media/arsip_tata")
 
 INDEX_NAME = "arsip_tata_all"
 
@@ -294,6 +297,98 @@ async def index_stats():
         stats = index.get_stats()
         return stats
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/pdf/{record_id}")
+async def get_pdf(record_id: str, watermark: bool = Query(False, description="Add COPY watermark")):
+    """
+    Serve PDF file for a record.
+    record_id format: 'item_<id>', 'bundle_<id>', 'box_<id>'
+    PDF path: {PDF_BASE_PATH}/{yeardate}/{codegen}.pdf
+    """
+    try:
+        # Extract table and id from record_id
+        parts = record_id.split("_", 1)
+        if len(parts) != 2:
+            raise HTTPException(status_code=400, detail="Invalid record_id format")
+
+        table_name, pk = parts[0], parts[1]
+        table_map = {
+            "item": "arsip_tata_item",
+            "bundle": "arsip_tata_bundle",
+            "box": "arsip_tata_box",
+        }
+        db_table = table_map.get(table_name)
+        if not db_table:
+            raise HTTPException(status_code=400, detail=f"Unknown table: {table_name}")
+
+        # Get record from MySQL to build PDF path
+        conn = pymysql.connect(
+            host=MYSQL_HOST,
+            port=MYSQL_PORT,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=MYSQL_DB,
+            charset='utf8mb4'
+        )
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if table_name == "item":
+            cursor.execute("""
+                SELECT i.codegen, i.yeardate
+                FROM arsip_tata_item i WHERE i.id = %s
+            """, (pk,))
+        elif table_name == "bundle":
+            cursor.execute("""
+                SELECT b.code as codegen, b.yeardate
+                FROM arsip_tata_bundle b WHERE b.id = %s
+            """, (pk,))
+        elif table_name == "box":
+            cursor.execute("""
+                SELECT CONCAT(bx.yeardate, '-', bx.box_number) as codegen, bx.yeardate
+                FROM arsip_tata_box bx WHERE bx.id = %s
+            """, (pk,))
+
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not row or not row.get("codegen"):
+            raise HTTPException(status_code=404, detail="Record not found or has no codegen")
+
+        codegen = row["codegen"]
+        yeardate = row.get("yeardate")
+
+        pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail=f"PDF not found: {codegen}")
+
+        if watermark:
+            # Add COPY watermark using PyMuPDF
+            import fitz
+            doc = fitz.open(pdf_path)
+            for i in range(len(doc)):
+                try:
+                    page = doc[i]
+                    tw = fitz.TextWriter(page.rect, opacity=0.3)
+                    tw.append((50, 100), "COPY")
+                    page.clean_contents()
+                    page.write_text(rect=page.rect, writers=tw)
+                except Exception:
+                    pass
+            pdf_bytes = doc.tobytes()
+            doc.close()
+            return Response(content=pdf_bytes, media_type="application/pdf",
+                           headers={"Content-Disposition": f'inline; filename="{codegen}.pdf"'})
+        else:
+            return FileResponse(path=pdf_path, media_type="application/pdf",
+                               filename=f"{codegen}.pdf")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

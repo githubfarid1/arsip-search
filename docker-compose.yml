@@ -25,6 +25,7 @@ services:
       - MYSQL_USER=root
       - MYSQL_PASSWORD=root123
       - MYSQL_DB=arsipserverdb2
+      - PDF_BASE_PATH=/pdfs/arsip_tata
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
