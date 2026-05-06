@@ -1,6 +1,15 @@
-version: '3.8'
-
 services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    container_name: arsip-meilisearch
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=arsipsearch2024
+    volumes:
+      - ./meilisearch_data:/meili_data
+    restart: unless-stopped
+
   api:
     build:
       context: ./api
@@ -21,6 +30,9 @@ services:
     volumes:
       - ./api:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
+    restart: unless-stopped
+    depends_on:
+      - meilisearch
 
   frontend:
     build:
@@ -30,9 +42,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
-    command: npm run dev
+      - NEXT_PUBLIC_API_URL=http://arsip-api:8888
+    restart: unless-stopped
+    depends_on:
+      - api
