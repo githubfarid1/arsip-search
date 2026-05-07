@@ -23,6 +23,7 @@ services:
       - ./api/.env
     volumes:
       - ./api:/app
+      - /home/arsip/nas-media/arsip_tata:/pdfs/arsip_tata
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
