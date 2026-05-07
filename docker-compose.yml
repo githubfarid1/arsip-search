@@ -2,8 +2,7 @@ services:
   meilisearch:
     image: getmeili/meilisearch:v1.6
     container_name: arsip-meilisearch
-    ports:
-      - "7700:7700"
+    network_mode: "host"
     environment:
       - MEILI_MASTER_KEY=arsipsearch2024
     volumes:
@@ -15,11 +14,15 @@ services:
       context: ./api
       dockerfile: Dockerfile
     container_name: arsip-api
-    network_mode: "host"
+    ports:
+      - "8888:8888"
     env_file:
       - ./api/.env
+    extra_hosts:
+      - "host.docker.internal:172.17.0.1"
     volumes:
       - ./api:/app
+      - /home/farid/dev/vibe/bws/arsip-search/api/.env:/app/.env
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
