@@ -9,28 +9,21 @@ services:
     volumes:
       - ./meilisearch_data:/meili_data
     restart: unless-stopped
-    networks:
-      - arsipnet
 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
     container_name: arsip-api
-    ports:
-      - "8888:8888"
+    network_mode: "host"
     env_file:
       - ./api/.env
-    extra_hosts:
-      - "host.docker.internal:172.17.0.1"
     volumes:
       - ./api:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
       - meilisearch
-    networks:
-      - arsipnet
 
   frontend:
     build:
@@ -44,9 +37,3 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    networks:
-      - arsipnet
-
-networks:
-  arsipnet:
-    driver: bridge
