@@ -2,12 +2,15 @@ services:
   meilisearch:
     image: getmeili/meilisearch:v1.6
     container_name: arsip-meilisearch
-    network_mode: "host"
+    ports:
+      - "7700:7700"
     environment:
       - MEILI_MASTER_KEY=arsipsearch2024
     volumes:
       - ./meilisearch_data:/meili_data
     restart: unless-stopped
+    networks:
+      - arsip-network
 
   api:
     build:
@@ -18,14 +21,14 @@ services:
       - "8888:8888"
     env_file:
       - ./api/.env
-    extra_hosts:
-      - "host.docker.internal:172.17.0.1"
     volumes:
       - ./api:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
       - meilisearch
+    networks:
+      - arsip-network
 
   frontend:
     build:
@@ -39,3 +42,9 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    networks:
+      - arsip-network
+
+networks:
+  arsip-network:
+    driver: bridge
