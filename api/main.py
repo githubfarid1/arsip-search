@@ -154,11 +154,11 @@ async def search(
 async def sync_to_meilisearch():
     try:
         conn = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DB,
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
             charset='utf8mb4'
         )
 
@@ -338,11 +338,11 @@ async def get_pdf(record_id: str, watermark: bool = Query(False, description="Ad
 
         # Get record from MySQL to build PDF path
         conn = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DB,
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
             charset='utf8mb4'
         )
         cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -433,11 +433,11 @@ async def get_thumbnail(record_id: str):
 
         # Get record from MySQL to build PDF path
         conn = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DB,
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
             charset='utf8mb4'
         )
         cursor = conn.cursor(pymysql.cursors.DictCursor)
