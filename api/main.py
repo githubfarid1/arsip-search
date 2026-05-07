@@ -28,13 +28,22 @@ app.add_middleware(
 )
 
 MEILI_URL = os.getenv("MEILI_URL", "http://localhost:7700")
-MEILI_KEY = os.getenv("MEILI_KEY", "arsipsearch2024")
-MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3307"))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root123")
-MYSQL_DB = os.getenv("MYSQL_DB", "arsipserverdb2")
-PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/home/arsip/nas-media/arsip_tata")
+MEILI_KEY = os.getenv("MEILI_KEY", "meilikey")
+DB_HOST = os.getenv("DB_HOST", "host.docker.internal")
+DB_PORT = int(os.getenv("DB_PORT", "3307"))
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_NAME = os.getenv("DB_NAME", "arsip_bws")
+PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/mnt/arsip")
+
+INDEX_NAME = "arsip_tata_all"
+
+def _pdf_exists(yeardate: Optional[int], codegen: str) -> bool:
+    """Check if PDF file exists for given yeardate and codegen."""
+    if not yeardate or not codegen:
+        return False
+    pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+    return os.path.exists(pdf_path)
 
 INDEX_NAME = "arsip_tata_all"
 
@@ -57,6 +66,7 @@ class SearchResult(BaseModel):
     bundle_code: Optional[str]
     filesize: Optional[int]
     page_count: Optional[int]
+    has_pdf: bool = False
 
 class SearchResponse(BaseModel):
     query: str
@@ -107,13 +117,16 @@ async def search(
 
         hits = []
         for hit in result["hits"]:
+            yeardate = hit.get("yeardate")
+            code = hit.get("code") or ""
+            has_pdf = _pdf_exists(yeardate, code) if yeardate and code else False
             hits.append(SearchResult(
                 id=hit["id"],
                 source_table=hit.get("source_table", ""),
-                code=hit.get("code") or "",
+                code=code,
                 description=hit.get("description"),
                 year_bundle=hit.get("year_bundle"),
-                yeardate=hit.get("yeardate"),
+                yeardate=yeardate,
                 box_number=hit.get("box_number") or "",
                 bundle_number=hit.get("bundle_number"),
                 title=hit.get("title") or "",
@@ -124,6 +137,7 @@ async def search(
                 bundle_code=hit.get("bundle_code") or "",
                 filesize=hit.get("filesize"),
                 page_count=hit.get("page_count"),
+                has_pdf=has_pdf,
             ))
 
         return SearchResponse(
