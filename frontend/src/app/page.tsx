@@ -401,13 +401,13 @@ export default function Home() {
             {results.map((result) => (
               <div
                 key={result.id}
-                className="rounded-xl p-4 transition cursor-pointer flex gap-4
+                className="rounded-xl p-4 transition cursor-pointer
                   dark:bg-slate-800 dark:border-slate-700 dark:hover:border-slate-500
                   bg-white border border-slate-200 hover:border-slate-400 shadow-sm"
               >
-                {/* Thumbnail */}
+                {/* Thumbnail - float left, text wraps around */}
                 <div
-                  className="shrink-0 cursor-zoom-in"
+                  className="float-left mr-4 mb-2 cursor-zoom-in"
                   onClick={(e) => { e.stopPropagation(); setThumbnailModal({result}) }}
                 >
                   <img
@@ -418,8 +418,8 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
+                {/* Content - flows around thumbnail, no flex */}
+                <div className="min-w-0">
                   <div className="flex flex-wrap gap-2 mb-1">
                     <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${
                       result.source_table === 'arsip_tata_year'
@@ -476,6 +476,8 @@ export default function Home() {
                     )}
                   </div>
                 </div>
+                {/* Clear float */}
+                <div className="clear-both" />
               </div>
             ))}
 
