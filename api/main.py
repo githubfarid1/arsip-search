@@ -391,6 +391,104 @@ async def get_pdf(record_id: str, watermark: bool = Query(False, description="Ad
         logger.error(f"PDF error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/thumbnail/{record_id}")
+async def get_thumbnail(record_id: str):
+    """
+    Generate thumbnail from first page of PDF.
+    Returns PNG image, cached in /tmp/thumbnails/
+    """
+    import fitz
+    import hashlib
+
+    try:
+        # Extract table and id from record_id
+        parts = record_id.split("_", 1)
+        if len(parts) != 2:
+            raise HTTPException(status_code=400, detail="Invalid record_id format")
+
+        table_name, pk = parts[0], parts[1]
+        table_map = {
+            "item": "arsip_tata_item",
+            "bundle": "arsip_tata_bundle",
+            "box": "arsip_tata_box",
+        }
+        db_table = table_map.get(table_name)
+        if not db_table:
+            raise HTTPException(status_code=400, detail=f"Unknown table: {table_name}")
+
+        # Get record from MySQL to build PDF path
+        conn = pymysql.connect(
+            host=MYSQL_HOST,
+            port=MYSQL_PORT,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=MYSQL_DB,
+            charset='utf8mb4'
+        )
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if table_name == "item":
+            cursor.execute("""
+                SELECT i.codegen, i.yeardate
+                FROM arsip_tata_item i WHERE i.id = %s
+            """, (pk,))
+        elif table_name == "bundle":
+            cursor.execute("""
+                SELECT b.code as codegen, b.yeardate
+                FROM arsip_tata_bundle b WHERE b.id = %s
+            """, (pk,))
+        elif table_name == "box":
+            cursor.execute("""
+                SELECT CONCAT(bx.yeardate, '-', bx.box_number) as codegen, bx.yeardate
+                FROM arsip_tata_box bx WHERE bx.id = %s
+            """, (pk,))
+
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not row or not row.get("codegen"):
+            raise HTTPException(status_code=404, detail="Record not found or has no codegen")
+
+        codegen = row["codegen"]
+        yeardate = row.get("yeardate")
+        pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail="PDF not found")
+
+        # Check cache
+        cache_dir = "/tmp/thumbnails"
+        cache_key = hashlib.md5(f"{pdf_path}".encode()).hexdigest()
+        cache_path = os.path.join(cache_dir, f"{cache_key}.png")
+
+        if os.path.exists(cache_path):
+            return FileResponse(path=cache_path, media_type="image/png")
+
+        # Generate thumbnail from first page
+        os.makedirs(cache_dir, exist_ok=True)
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            raise HTTPException(status_code=404, detail="PDF has no pages")
+
+        page = doc[0]
+        # Render at 150 DPI for thumbnail, scale to fit 200x280
+        zoom = 150 / 72
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        pix.save(cache_path)
+        doc.close()
+
+        return FileResponse(path=cache_path, media_type="image/png")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Thumbnail error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8888)

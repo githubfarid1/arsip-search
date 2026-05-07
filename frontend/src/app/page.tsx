@@ -48,6 +48,7 @@ export default function Home() {
   const [pdfModal, setPdfModal] = useState<{result: SearchResult | null; watermark: boolean}>({result: null, watermark: false})
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [thumbnailModal, setThumbnailModal] = useState<{result: SearchResult | null}>({result: null})
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const LIMIT = 20
 
@@ -67,6 +68,10 @@ export default function Home() {
     setPdfModal({result: null, watermark: false})
     setPdfError(null)
     setPdfLoading(false)
+  }
+
+  const closeThumbnailModal = () => {
+    setThumbnailModal({result: null})
   }
 
   const toggleTheme = () => {
@@ -259,6 +264,29 @@ export default function Home() {
         </div>
       )}
 
+      {/* Thumbnail Lightbox Modal */}
+      {thumbnailModal.result && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-zoom-out"
+          onClick={closeThumbnailModal}
+        >
+          <img
+            src={`/api/thumbnail/${thumbnailModal.result.id}`}
+            alt="Full size preview"
+            className="max-w-[95vw] max-h-[95vh] object-contain shadow-2xl rounded-lg"
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={closeThumbnailModal}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition"
+          >
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <header className="dark:border-slate-700 dark:bg-slate-900/80 bg-white/80 backdrop-blur sticky top-0 z-10 border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-4">
@@ -372,12 +400,26 @@ export default function Home() {
             {results.map((result) => (
               <div
                 key={result.id}
-                className="rounded-xl p-5 transition cursor-pointer
+                className="rounded-xl p-4 transition cursor-pointer flex gap-4
                   dark:bg-slate-800 dark:border-slate-700 dark:hover:border-slate-500
                   bg-white border border-slate-200 hover:border-slate-400 shadow-sm"
               >
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div className="flex flex-wrap gap-2">
+                {/* Thumbnail */}
+                <div
+                  className="shrink-0 cursor-zoom-in"
+                  onClick={(e) => { e.stopPropagation(); setThumbnailModal({result}) }}
+                >
+                  <img
+                    src={`/api/thumbnail/${result.id}`}
+                    alt="Thumbnail"
+                    className="w-24 h-32 object-cover rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap gap-2 mb-1">
                     <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${
                       result.source_table === 'arsip_tata_year'
                         ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700')
@@ -409,43 +451,43 @@ export default function Home() {
                     {result.box_number && <span>Box: {result.box_number}</span>}
                     {result.yeardate && <span>Thn: {result.yeardate}</span>}
                   </div>
-                </div>
 
-                <p className="text-sm leading-relaxed whitespace-pre-line dark:text-slate-200 text-slate-800">
-                  {highlight(result.description || '-', query)}
-                </p>
+                  <p className="text-sm leading-relaxed whitespace-pre-line dark:text-slate-200 text-slate-800 mt-1">
+                    {highlight(result.description || '-', query)}
+                  </p>
 
-                {(result.title || result.name || result.organization || result.creator || result.page_count) && (
-                  <div className={`mt-2 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs dark:text-slate-400 text-slate-500 ${dark ? 'border-t border-slate-700' : 'border-t border-slate-200'}`}>
-                    {result.title && <span>Title: <span className="dark:text-slate-300 text-slate-700">{result.title}</span></span>}
-                    {result.name && <span>Nama: <span className="dark:text-slate-300 text-slate-700">{result.name}</span></span>}
-                    {result.organization && <span>Org: <span className="dark:text-slate-300 text-slate-700">{result.organization}</span></span>}
-                    {result.creator && <span>Creator: <span className="dark:text-slate-300 text-slate-700">{result.creator}</span></span>}
-                    {result.page_count && <span>Halaman: <span className="dark:text-slate-300 text-slate-700">{result.page_count}</span></span>}
+                  {(result.title || result.name || result.organization || result.creator || result.page_count) && (
+                    <div className={`mt-1 pt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs dark:text-slate-400 text-slate-500 ${dark ? 'border-t border-slate-700' : 'border-t border-slate-200'}`}>
+                      {result.title && <span>Title: <span className="dark:text-slate-300 text-slate-700">{result.title}</span></span>}
+                      {result.name && <span>Nama: <span className="dark:text-slate-300 text-slate-700">{result.name}</span></span>}
+                      {result.organization && <span>Org: <span className="dark:text-slate-300 text-slate-700">{result.organization}</span></span>}
+                      {result.creator && <span>Creator: <span className="dark:text-slate-300 text-slate-700">{result.creator}</span></span>}
+                      {result.page_count && <span>Halaman: <span className="dark:text-slate-300 text-slate-700">{result.page_count}</span></span>}
+                    </div>
+                  )}
+
+                  {/* PDF Buttons */}
+                  <div className="mt-2 pt-2 flex gap-2 border-t border-slate-200 dark:border-slate-700">
+                    <button
+                      onClick={() => { setPdfLoading(true); openPdfModal(result, false) }}
+                      className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      Lihat PDF
+                    </button>
+                    <button
+                      onClick={() => { setPdfLoading(true); openPdfModal(result, true) }}
+                      className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      PDF + Watermark
+                    </button>
                   </div>
-                )}
-
-                {/* PDF Buttons */}
-                <div className="mt-3 pt-2 flex gap-2 border-t border-slate-200 dark:border-slate-700">
-                  <button
-                    onClick={() => { setPdfLoading(true); openPdfModal(result, false) }}
-                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    Lihat PDF
-                  </button>
-                  <button
-                    onClick={() => { setPdfLoading(true); openPdfModal(result, true) }}
-                    className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition flex items-center gap-1.5"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    PDF + Watermark
-                  </button>
                 </div>
               </div>
             ))}
