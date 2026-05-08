@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 interface SearchResult {
   id: string
@@ -50,6 +51,14 @@ export default function Home() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [thumbnailModal, setThumbnailModal] = useState<{result: SearchResult | null}>({result: null})
+  const [statsModal, setStatsModal] = useState(false)
+  const [statsData, setStatsData] = useState<{
+    total_documents: number
+    total_has_pdf: number
+    total_no_pdf: number
+    by_year: Record<string, {total: number; has_pdf: number; no_pdf: number}>
+  } | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const LIMIT = 20
 
@@ -145,6 +154,20 @@ export default function Home() {
     } finally {
       setReindexing(false)
       setTimeout(() => setReindexMsg(null), 5000)
+    }
+  }
+
+  const handleStats = async () => {
+    if (statsModal && statsData) return
+    setStatsModal(true)
+    if (statsData) return
+    setStatsLoading(true)
+    try {
+      const res = await fetch('/api/stats')
+      const data = await res.json()
+      if (res.ok) setStatsData(data)
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -340,10 +363,126 @@ export default function Home() {
                   </>
                 )}
               </button>
+              <button
+                onClick={handleStats}
+                className="px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition flex items-center gap-1.5"
+                title="Statistik dokumen"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Statistik
+              </button>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Stats Modal */}
+      {statsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setStatsModal(false)}
+        >
+          <div
+            className="relative w-[90vw] max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl bg-white dark:bg-slate-800 p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setStatsModal(false)}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+            >
+              <svg className="w-5 h-5 dark:text-slate-300 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <h2 className="text-xl font-bold dark:text-white mb-6">Statistik Arsip</h2>
+
+            {statsLoading ? (
+              <div className="flex items-center justify-center h-48">
+                <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : statsData ? (
+              <div className="space-y-8">
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-4 rounded-xl bg-blue-100 dark:bg-blue-900/40">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{statsData.total_documents.toLocaleString()}</div>
+                    <div className="text-xs dark:text-slate-300 text-slate-600">Total Dokumen</div>
+                  </div>
+                  <div className="text-center p-4 rounded-xl bg-green-100 dark:bg-green-900/40">
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">{statsData.total_has_pdf.toLocaleString()}</div>
+                    <div className="text-xs dark:text-slate-300 text-slate-600">Ada PDF</div>
+                  </div>
+                  <div className="text-center p-4 rounded-xl bg-red-100 dark:bg-red-900/40">
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">{statsData.total_no_pdf.toLocaleString()}</div>
+                    <div className="text-xs dark:text-slate-300 text-slate-600">Belum Ada PDF</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Pie Chart: PDF Coverage */}
+                  <div>
+                    <h3 className="text-sm font-semibold dark:text-slate-200 mb-4">Dokumen vs PDF</h3>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Ada PDF', value: statsData.total_has_pdf, color: '#16a34a' },
+                            { name: 'Belum Ada PDF', value: statsData.total_no_pdf, color: '#dc2626' },
+                          ]}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(1)}%`}
+                          labelLine={false}
+                        >
+                          {[
+                            { color: '#16a34a' },
+                            { color: '#dc2626' },
+                          ].map((c, i) => <Cell key={i} fill={c.color} />)}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v: unknown) => (v as number).toLocaleString()}
+                          contentStyle={{ borderRadius: 8 }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bar Chart: Yearly */}
+                <div>
+                  <h3 className="text-sm font-semibold dark:text-slate-200 mb-4">Jumlah Dokumen per Tahun</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={Object.entries(statsData.by_year).map(([year, v]) => ({
+                        year,
+                        'Total': v.total,
+                        'Ada PDF': v.has_pdf,
+                        'Belum PDF': v.no_pdf,
+                      }))}
+                    >
+                      <XAxis dataKey="year" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(v: unknown) => (v as number).toLocaleString()} contentStyle={{ borderRadius: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Total" fill="#6366f1" />
+                      <Bar dataKey="Ada PDF" fill="#16a34a" />
+                      <Bar dataKey="Belum PDF" fill="#dc2626" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-red-500">Gagal memuat statistik</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Reindex notification */}
       {reindexMsg && (

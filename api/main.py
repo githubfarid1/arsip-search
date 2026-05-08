@@ -150,6 +150,77 @@ async def search(
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/stats", tags=["stats"])
+async def get_stats():
+    """Return statistics: PDF coverage by source_table and yearly breakdown."""
+    try:
+        # Stats by source_table
+        source_stats = {}
+        yearly_stats = {}
+
+        # Use documents API for full pagination (search API caps at 1000)
+        idx = meili_client.index(INDEX_NAME)
+        offset = 0
+        batch_size = 1000
+        while True:
+            docs = idx.get_documents(parameters={"offset": offset, "limit": batch_size})
+            results = docs.results
+            if not results:
+                break
+
+            for doc in results:
+                d = vars(doc)
+                tbl = d.get("source_table", "unknown")
+                year = d.get("yeardate")
+                page_count = d.get("page_count")
+                has_pdf = (page_count is not None and page_count > 0)
+
+                # Only count arsip_tata_item for totals
+                if tbl != "arsip_tata_item":
+                    continue
+
+                # by source_table
+                if tbl not in source_stats:
+                    source_stats[tbl] = {"total": 0, "has_pdf": 0, "no_pdf": 0}
+                source_stats[tbl]["total"] += 1
+                if has_pdf:
+                    source_stats[tbl]["has_pdf"] += 1
+                else:
+                    source_stats[tbl]["no_pdf"] += 1
+
+                # by year
+                if year:
+                    key = str(year)
+                    if key not in yearly_stats:
+                        yearly_stats[key] = {"total": 0, "has_pdf": 0, "no_pdf": 0}
+                    yearly_stats[key]["total"] += 1
+                    if has_pdf:
+                        yearly_stats[key]["has_pdf"] += 1
+                    else:
+                        yearly_stats[key]["no_pdf"] += 1
+
+            offset += batch_size
+            if len(results) < batch_size:
+                break
+
+        # Sort yearly stats by year ascending
+        yearly_stats = dict(sorted(yearly_stats.items()))
+
+        # Overall totals
+        total_all = sum(v["total"] for v in source_stats.values())
+        has_pdf_all = sum(v["has_pdf"] for v in source_stats.values())
+        no_pdf_all = total_all - has_pdf_all
+
+        return {
+            "total_documents": total_all,
+            "total_has_pdf": has_pdf_all,
+            "total_no_pdf": no_pdf_all,
+            "by_year": yearly_stats,
+        }
+    except Exception as e:
+        logger.error(f"Stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/sync", tags=["sync"])
 async def sync_to_meilisearch():
     try:
