@@ -423,7 +423,7 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {/* Pie Chart: PDF Coverage */}
-                  <div>
+                  <div className="col-span-1 md:col-span-2 flex flex-col items-center">
                     <h3 className="text-sm font-semibold dark:text-slate-200 mb-4">Dokumen vs PDF</h3>
                     <ResponsiveContainer width="100%" height={220}>
                       <PieChart>
