@@ -37,3 +37,4 @@ npm-debug.log*
 # Build artifacts
 .cache/
 *.manifest.json
+meilisearch_data
