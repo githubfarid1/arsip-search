@@ -24,15 +24,7 @@ services:
     volumes:
       - ./api:/app
       - /home/arsip/nas-media/arsip_tata:/pdfs/arsip_tata
-    # command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    entrypoint: >
-      sh -c "
-      wget -qO- https://github.com | tar -xvz -C /usr/local/bin &&
-      dockerize -wait tcp://host.docker.internal:3306 -timeout 60s &&
-      uvicorn main:app --host 0.0.0.0 --port 8888 --reload
-      "
+    command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
       - meilisearch
