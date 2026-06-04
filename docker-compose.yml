@@ -32,7 +32,7 @@ services:
       wget -qO- https://github.com | tar -xvz -C /usr/local/bin &&
       dockerize -wait tcp://host.docker.internal:3306 -timeout 60s &&
       uvicorn main:app --host 0.0.0.0 --port 8888 --reload
-      "          
+      "
     restart: unless-stopped
     depends_on:
       - meilisearch
