@@ -1,0 +1,59 @@
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    container_name: arsip-meilisearch
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-arsipsearch2024}
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: arsip-api
+    environment:
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_KEY=${MEILI_MASTER_KEY:-arsipsearch2024}
+      - DB_HOST=${DB_HOST:-mysql-arsip}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-root123}
+      - DB_NAME=${DB_NAME:-arsipserverdb2}
+      - PDF_BASE_PATH=${PDF_BASE_PATH:-/pdfs/arsip_tata}
+    volumes:
+      - ${PDF_HOST_PATH:-/home/arsip/nas-media/arsip_tata}:/pdfs/arsip_tata
+    command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
+    restart: unless-stopped
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: arsip-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8888
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  meilisearch_data:
+    driver: local
