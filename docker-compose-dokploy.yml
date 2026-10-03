@@ -7,12 +7,6 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7700/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
 
   api:
     build:
@@ -33,14 +27,13 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8888 --reload
     restart: unless-stopped
     depends_on:
-      meilisearch:
-        condition: service_healthy
+      - meilisearch
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/docs')"]
-      interval: 60s
-      timeout: 15s
-      retries: 5
-      start_period: 60s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/docs').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   frontend:
     build:
@@ -51,8 +44,7 @@ services:
       - NEXT_PUBLIC_API_URL=http://api:8888
     restart: unless-stopped
     depends_on:
-      api:
-        condition: service_healthy
+      - api
 
 volumes:
   meilisearch_data:
