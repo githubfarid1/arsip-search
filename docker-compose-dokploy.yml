@@ -44,6 +44,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: arsip-frontend
+    ports:
+      - "8007:8007"
     environment:
       - NEXT_PUBLIC_API_URL=http://api:8888
     restart: unless-stopped
