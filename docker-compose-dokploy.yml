@@ -7,6 +7,8 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     restart: unless-stopped
+    networks:
+      - dokploy-network
 
   api:
     build:
@@ -34,6 +36,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - dokploy-network
 
   frontend:
     build:
@@ -45,6 +49,12 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
 
 volumes:
   meilisearch_data:
