@@ -41,8 +41,7 @@ def _pdf_exists(yeardate: Optional[int], codegen: str) -> bool:
 async def _auto_reindex():
     """Run Meilisearch reindex on startup."""
     try:
-        logger.info("🔄 Auto-reindex: waiting for services...")
-        await asyncio.sleep(5)  # wait for Meilisearch & DB to be ready
+        logger.info("🔄 Auto-reindex: starting...")
 
         conn = pymysql.connect(
             host=DB_HOST, port=DB_PORT, user=DB_USER,
