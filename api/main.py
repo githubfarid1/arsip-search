@@ -4,19 +4,114 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List
+from contextlib import asynccontextmanager
 import meilisearch
 import pymysql
 import os
 import io
 import logging
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Config & clients (defined before lifespan so _auto_reindex can use them) ---
+MEILI_URL = os.getenv("MEILI_URL", "http://localhost:7700")
+MEILI_KEY = os.getenv("MEILI_KEY", "meilikey")
+DB_HOST = os.getenv("DB_HOST", "host.docker.internal")
+DB_PORT = int(os.getenv("DB_PORT", "3307"))
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_NAME = os.getenv("DB_NAME", "arsip_bws")
+PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/mnt/arsip")
+INDEX_NAME = "arsip_tata_all"
+
+meili_client = meilisearch.Client(MEILI_URL, MEILI_KEY)
+
+
+def _pdf_exists(yeardate: Optional[int], codegen: str) -> bool:
+    """Check if PDF file exists for given yeardate and codegen."""
+    if not yeardate or not codegen:
+        return False
+    pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+    return os.path.exists(pdf_path)
+
+
+# --- Auto-reindex on startup ---
+async def _auto_reindex():
+    """Run Meilisearch reindex on startup."""
+    try:
+        logger.info("🔄 Auto-reindex: waiting for services...")
+        await asyncio.sleep(5)  # wait for Meilisearch & DB to be ready
+
+        conn = pymysql.connect(
+            host=DB_HOST, port=DB_PORT, user=DB_USER,
+            password=DB_PASSWORD, database=DB_NAME, charset='utf8mb4'
+        )
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        tables_config = [
+            {"name": "arsip_tata_year", "select": "SELECT id, yeardate, NULL as description, NULL as code, NULL as box_number, NULL as bundle_number, NULL as title, NULL as item_number, NULL as name, NULL as organization, NULL as creator FROM arsip_tata_year", "id_prefix": "year_"},
+            {"name": "arsip_tata_box", "select": "SELECT b.id, b.box_number, b.yeardate, b.notes as description, NULL as code, NULL as bundle_number, NULL as title, NULL as item_number, NULL as name, NULL as organization, NULL as creator FROM arsip_tata_box b", "id_prefix": "box_"},
+            {"name": "arsip_tata_bundle", "select": "SELECT b.id, b.code, b.description, b.year_bundle, b.yeardate, b.bundle_number, bx.box_number, b.creator FROM arsip_tata_bundle b INNER JOIN arsip_tata_box bx ON b.box_id = bx.id", "id_prefix": "bundle_"},
+            {"name": "arsip_tata_item", "select": "SELECT i.id, i.item_number, i.title, i.codegen, i.yeardate, i.filesize, i.page_count, b.bundle_number, b.code AS bundle_code, b.creator, b.description AS bundle_description, b.year_bundle, bx.box_number, bx.yeardate AS box_year FROM arsip_tata_box bx INNER JOIN arsip_tata_bundle b ON bx.id = b.box_id INNER JOIN arsip_tata_item i ON i.bundle_id = b.id", "id_prefix": "item_"},
+        ]
+
+        documents = []
+        total_indexed = {}
+        for cfg in tables_config:
+            cursor.execute(cfg["select"])
+            rows = cursor.fetchall()
+            count = 0
+            for row in rows:
+                desc_parts = []
+                if row.get("title"): desc_parts.append(str(row["title"]))
+                if row.get("bundle_description"): desc_parts.append(str(row["bundle_description"]))
+                description = " ".join(desc_parts)
+                doc = {
+                    "id": f"{cfg['id_prefix']}{row['id']}", "source_table": cfg["name"],
+                    "code": row.get("codegen") or row.get("bundle_code") or "",
+                    "description": description, "year_bundle": row.get("year_bundle"),
+                    "yeardate": row.get("yeardate"), "box_number": row.get("box_number") or "",
+                    "bundle_number": row.get("bundle_number"), "creator": row.get("creator") or "",
+                    "title": row.get("title") or "", "item_number": row.get("item_number"),
+                    "name": "", "organization": "", "bundle_code": row.get("bundle_code") or "",
+                    "filesize": row.get("filesize"), "page_count": row.get("page_count"),
+                }
+                documents.append(doc)
+                count += 1
+            total_indexed[cfg["name"]] = count
+        cursor.close()
+        conn.close()
+
+        try: meili_client.delete_index(INDEX_NAME)
+        except: pass
+        task = meili_client.create_index(INDEX_NAME, {"primaryKey": "id"})
+        meili_client.wait_for_task(task.task_uid)
+        index = meili_client.index(INDEX_NAME)
+        task = index.add_documents(documents)
+        index.update_settings({
+            "searchableAttributes": ["description", "code", "box_number", "title", "bundle_code", "creator", "name", "organization"],
+            "filterableAttributes": ["source_table", "yeardate", "year_bundle", "box_number", "bundle_number"],
+            "sortableAttributes": ["yeardate", "year_bundle"],
+            "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"]
+        })
+        logger.info(f"✅ Auto-reindex complete! {len(documents)} documents indexed: {total_indexed}")
+    except Exception as e:
+        logger.error(f"❌ Auto-reindex failed: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Run reindex in background so server starts accepting requests immediately
+    asyncio.create_task(_auto_reindex())
+    yield
+
 app = FastAPI(
     title="Arsip Search API",
     description="API for searching arsip documents via Meilisearch",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -26,28 +121,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-MEILI_URL = os.getenv("MEILI_URL", "http://localhost:7700")
-MEILI_KEY = os.getenv("MEILI_KEY", "meilikey")
-DB_HOST = os.getenv("DB_HOST", "host.docker.internal")
-DB_PORT = int(os.getenv("DB_PORT", "3307"))
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
-DB_NAME = os.getenv("DB_NAME", "arsip_bws")
-PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/mnt/arsip")
-
-INDEX_NAME = "arsip_tata_all"
-
-def _pdf_exists(yeardate: Optional[int], codegen: str) -> bool:
-    """Check if PDF file exists for given yeardate and codegen."""
-    if not yeardate or not codegen:
-        return False
-    pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
-    return os.path.exists(pdf_path)
-
-INDEX_NAME = "arsip_tata_all"
-
-meili_client = meilisearch.Client(MEILI_URL, MEILI_KEY)
 
 class SearchResult(BaseModel):
     id: str
