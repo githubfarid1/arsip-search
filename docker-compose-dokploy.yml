@@ -24,6 +24,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-root123}
       - DB_NAME=${DB_NAME:-arsipserverdb2}
       - PDF_BASE_PATH=${PDF_BASE_PATH:-/pdfs/arsip_tata}
+      - PDF_WAIT_TIMEOUT=${PDF_WAIT_TIMEOUT:-30}
     volumes:
       - ${PDF_HOST_PATH:-/home/arsip/nas-media/arsip_tata}:/pdfs/arsip_tata
     restart: unless-stopped
