@@ -26,7 +26,7 @@ services:
       - PDF_BASE_PATH=${PDF_BASE_PATH:-/pdfs/arsip_tata}
     volumes:
       - ${PDF_HOST_PATH:-/home/arsip/nas-media/arsip_tata}:/pdfs/arsip_tata
-    restart: unless-stopped
+    restart: always
     depends_on:
       - meilisearch
     healthcheck:
