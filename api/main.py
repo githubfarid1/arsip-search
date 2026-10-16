@@ -23,7 +23,8 @@ DB_PORT = int(os.getenv("DB_PORT", "3307"))
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_NAME = os.getenv("DB_NAME", "arsip_bws")
-PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/mnt/arsip")
+PDF_BASE_PATH = os.getenv("PDF_BASE_PATH", "/pdfs")
+PDF_DIR = os.path.join(PDF_BASE_PATH, "arsip_tata")
 INDEX_NAME = "arsip_tata_all"
 
 meili_client = meilisearch.Client(MEILI_URL, MEILI_KEY)
@@ -33,7 +34,7 @@ def _pdf_exists(yeardate: Optional[int], codegen: str) -> bool:
     """Check if PDF file exists for given yeardate and codegen."""
     if not yeardate or not codegen:
         return False
-    pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+    pdf_path = os.path.join(PDF_DIR, str(yeardate), f"{codegen}.pdf")
     return os.path.exists(pdf_path)
 
 
@@ -461,7 +462,7 @@ async def get_pdf(record_id: str, watermark: bool = Query(False, description="Ad
     """
     Serve PDF file for a record.
     record_id format: 'item_<id>', 'bundle_<id>', 'box_<id>'
-    PDF path: {PDF_BASE_PATH}/{yeardate}/{codegen}.pdf
+    PDF path: {PDF_DIR}/{yeardate}/{codegen}.pdf
     """
     try:
         # Extract table and id from record_id
@@ -516,7 +517,7 @@ async def get_pdf(record_id: str, watermark: bool = Query(False, description="Ad
         codegen = row["codegen"]
         yeardate = row.get("yeardate")
 
-        pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+        pdf_path = os.path.join(PDF_DIR, str(yeardate), f"{codegen}.pdf")
 
         if not os.path.exists(pdf_path):
             raise HTTPException(status_code=404, detail=f"PDF not found: {codegen}")
@@ -610,7 +611,7 @@ async def get_thumbnail(record_id: str):
 
         codegen = row["codegen"]
         yeardate = row.get("yeardate")
-        pdf_path = os.path.join(PDF_BASE_PATH, str(yeardate), f"{codegen}.pdf")
+        pdf_path = os.path.join(PDF_DIR, str(yeardate), f"{codegen}.pdf")
 
         if not os.path.exists(pdf_path):
             raise HTTPException(status_code=404, detail="PDF not found")

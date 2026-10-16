@@ -21,11 +21,9 @@ services:
       - "8888:8888"
     env_file:
       - ./api/.env
-    environment:
-      - PDF_WAIT_TIMEOUT=${PDF_WAIT_TIMEOUT:-30}
     volumes:
       - ./api:/app
-      - /home/arsip/nas-media/arsip_tata:/pdfs/arsip_tata
+      - /home/arsip/nas-media:/pdfs
     restart: unless-stopped
     depends_on:
       - meilisearch
