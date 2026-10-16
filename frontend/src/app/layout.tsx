@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Arsip Finder - BWS Maluku Utara',
-  description: 'Sistem Pencarian Arsip BWS Maluku Utara',
+  title: 'SIDAGI - Sistem Dokumentasi Arsip Digital BWS Maluku Utara',
+  description: 'Sistem Dokumentasi Arsip Digital BWS Maluku Utara',
   icons: {
     icon: '/logo.png',
   },

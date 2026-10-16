@@ -318,8 +318,8 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain" />
               <div>
-                <h1 className="text-xl font-bold dark:text-white text-slate-900">Arsip Finder</h1>
-                <p className="text-sm dark:text-slate-400 text-slate-500">BWS Maluku Utara</p>
+                <h1 className="text-xl font-bold dark:text-white text-slate-900">SIDAGI</h1>
+                <p className="text-sm dark:text-slate-400 text-slate-500">Sistem Dokumentasi Arsip Digital BWS Maluku Utara</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -667,7 +667,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="dark:border-slate-800 dark:text-slate-600 border-t border-slate-200 text-xs text-center py-4 dark:bg-slate-900 bg-white">
-        Arsip Finder — BWS Maluku Utara
+        SIDAGI — Sistem Dokumentasi Arsip Digital BWS Maluku Utara
       </footer>
     </div>
   )
