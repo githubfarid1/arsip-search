@@ -6,6 +6,14 @@
 - Docker & Docker Compose v2
 - MySQL sudah berjalan (bisa di server lain atau lokal)
 - 2GB+ RAM tersedia
+- Mount NAS (`/home/arsip/nas-media`) harus **soft + timeout** (mis. `soft,timeo=10,retrans=3` di fstab) agar Docker tidak hang saat NAS mati
+- Docker start setelah mount siap, contoh drop-in:
+  `/etc/systemd/system/docker.service.d/require-nas.conf`
+  ```ini
+  [Unit]
+  After=network-online.target
+  RequiresMountsFor=/home/arsip/nas-media
+  ```
 
 ---
 

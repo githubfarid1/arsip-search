@@ -23,7 +23,11 @@ services:
       - ./api/.env
     volumes:
       - ./api:/app
-      - /home/arsip/nas-media:/pdfs
+      - type: bind
+        source: /home/arsip/nas-media
+        target: /pdfs
+        bind:
+          propagation: rslave
     restart: unless-stopped
     depends_on:
       - meilisearch

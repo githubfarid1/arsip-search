@@ -3,6 +3,10 @@ set -e
 
 echo "=== Arsip Search API Entry Point ==="
 
+# Best-effort: ensure PDF dir exists without hanging if NAS is unresponsive.
+timeout 2 mkdir -p "${PDF_BASE_PATH:-/pdfs}/arsip_tata" 2>/dev/null || \
+  echo "⚠️  PDF path not ready yet (NAS may be down); continuing without PDFs"
+
 # Wait for MySQL to be ready
 echo "⏳ Waiting for MySQL at ${DB_HOST:-host.docker.internal}:${DB_PORT:-3307}..."
 python3 -c "

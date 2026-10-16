@@ -25,7 +25,11 @@ services:
       - DB_NAME=${DB_NAME:-arsipserverdb2}
       - PDF_BASE_PATH=${PDF_BASE_PATH:-/pdfs}
     volumes:
-      - ${PDF_HOST_PATH:-/home/arsip/nas-media}:/pdfs
+      - type: bind
+        source: ${PDF_HOST_PATH:-/home/arsip/nas-media}
+        target: /pdfs
+        bind:
+          propagation: rslave
     restart: unless-stopped
     depends_on:
       - meilisearch
