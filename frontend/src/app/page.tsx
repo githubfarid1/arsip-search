@@ -137,29 +137,7 @@ export default function Home() {
     search(query, 0)
   }
 
-const [restarting, setRestarting] = useState(false)
-  const [restartMsg, setRestartMsg] = useState<string | null>(null)
 
-  const handleRestartApi = async () => {
-    if (restarting) return
-    if (!confirm('Restart API service? Ini akan menghentikan sementara layanan API.')) return
-    setRestarting(true)
-    setRestartMsg(null)
-    try {
-      const res = await fetch('/api/restart-api', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok && data.status === 'ok') {
-        setRestartMsg('Berhasil! API sedang direstart...')
-      } else {
-        setRestartMsg(`Gagal: ${data.message || 'Unknown error'}`)
-      }
-    } catch {
-      setRestartMsg('Gagal: Tidak dapat terhubung ke restart service.')
-    } finally {
-      setRestarting(false)
-      setTimeout(() => setRestartMsg(null), 5000)
-    }
-  }
   const handleReindex = async () => {
     if (reindexing) return
     setReindexing(true)
@@ -396,26 +374,7 @@ const [restarting, setRestarting] = useState(false)
                 </svg>
                 Statistik
               </button>
-              <button
-                onClick={handleRestartApi}
-                disabled={restarting}
-                className="px-3 py-1.5 text-xs bg-orange-600 hover:bg-orange-500 disabled:bg-orange-800 disabled:cursor-not-allowed text-white rounded-lg transition flex items-center gap-1.5"
-                title="Restart API service (gunakan jika NAS sudah siap)"
-              >
-                {restarting ? (
-                  <>
-                    <div className="w-3 h-3 border-1.5 border-white border-t-transparent rounded-full animate-spin" />
-                    Restarting...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
-                    Restart API
-                  </>
-                )}
-              </button>
+
             </div>
           </div>
         </div>
@@ -539,17 +498,7 @@ const [restarting, setRestarting] = useState(false)
         </div>
       )}
 
-      {/* Restart notification */}
-      {restartMsg && (
-        <div className="max-w-5xl mx-auto w-full px-4 mt-4">
-          <div className={`px-4 py-3 rounded-lg text-sm ${restartMsg.startsWith('Berhasil')
-            ? (dark ? 'bg-green-900/60 text-green-300 border border-green-700' : 'bg-green-100 text-green-800 border border-green-300')
-            : (dark ? 'bg-red-900/60 text-red-300 border border-red-700' : 'bg-red-100 text-red-800 border border-red-300')
-          }`}>
-            {restartMsg}
-          </div>
-        </div>
-      )}
+
 
       {/* Search Area */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-8">
