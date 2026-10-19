@@ -42,6 +42,17 @@ services:
     networks:
       - dokploy-network
 
+  restart-api:
+    build:
+      context: ./restart-api
+      dockerfile: Dockerfile
+    container_name: arsip-restart-api
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+
   frontend:
     build:
       context: ./frontend
@@ -51,9 +62,11 @@ services:
       - "8007:8007"
     environment:
       - NEXT_PUBLIC_API_URL=http://api:8888
+      - RESTART_API_URL=http://restart-api:9999
     restart: unless-stopped
     depends_on:
       - api
+      - restart-api
     networks:
       - dokploy-network
 
