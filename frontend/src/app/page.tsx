@@ -319,8 +319,8 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain" />
               <div>
-                <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-[family-name:var(--font-display)]">SIDAGI</h1>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 font-[family-name:var(--font-display)]">Sistem Dokumentasi Arsip Digital BWS Maluku Utara</p>
+                <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 ">SIDAGI</h1>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 ">Sistem Dokumentasi Arsip Digital BWS Maluku Utara</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
