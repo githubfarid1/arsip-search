@@ -11,5 +11,8 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY app.py .
+
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 9999
-CMD ["python3", "app.py"]
+CMD ["python3", "-u", "app.py"]
