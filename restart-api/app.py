@@ -1,108 +1,67 @@
 """Docker container watchdog + restart service.
 
+Uses Docker CLI via subprocess (already installed in image).
 - Background thread checks if target container is running.
 - If stopped/exited, automatically restarts it.
 - If missing (never created), calls docker compose up to recreate it.
 - Aggressive retry (30s) while target is down; back to CHECK_INTERVAL when healthy.
-- Also exposes POST / for manual restart trigger.
-- Uses only Python stdlib — no pip dependencies.
+- Also exposes POST / for manual restart trigger and GET /status.
 """
 
 import http.server
 import json
-import socket
 import os
 import subprocess
 import threading
 import time
 
 CONTAINER_NAME = os.getenv("TARGET_CONTAINER", "arsip-api")
-DOCKER_SOCKET = "/var/run/docker.sock"
 PORT = 9999
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "1800"))  # normal interval
-RETRY_INTERVAL = int(os.getenv("RETRY_INTERVAL", "30"))     # retry saat container mati
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "1800"))
+RETRY_INTERVAL = int(os.getenv("RETRY_INTERVAL", "30"))
 COMPOSE_FILE = os.getenv("COMPOSE_FILE", "/app/docker-compose.yml")
 COMPOSE_SERVICE = os.getenv("COMPOSE_SERVICE", "api")
 COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT_NAME", "arsip-search")
 
 
-class DockerClient:
-    """Minimal Docker Engine API client via unix socket."""
+def run_docker(*args, timeout=30):
+    """Run a docker CLI command. Returns (returncode, stdout, stderr)."""
+    cmd = ["docker"] + list(args)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except FileNotFoundError:
+        return -1, "", "docker CLI not found"
+    except subprocess.TimeoutExpired:
+        return -1, "", "timeout"
+    except Exception as e:
+        return -1, "", str(e)
 
-    def __init__(self, socket_path):
-        self.socket_path = socket_path
-        self._api_version = None
 
-    def _raw_request(self, method, path, body=b""):
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(self.socket_path)
-        sock.settimeout(30)
-        headers = f"{method} {path} HTTP/1.1\r\nHost: localhost\r\n"
-        if body:
-            headers += f"Content-Length: {len(body)}\r\n"
-        else:
-            headers += "Content-Length: 0\r\n"
-        headers += "\r\n"
-        sock.sendall(headers.encode() + body)
-        response = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            response += chunk
-        sock.close()
-        status_line = response.split(b"\r\n")[0].decode(errors="replace")
-        status_code = int(status_line.split(" ")[1]) if " " in status_line else 0
-        parts = response.split(b"\r\n\r\n", 1)
-        body_str = parts[1].decode(errors="replace") if len(parts) > 1 else ""
-        return status_code, body_str
+def get_container_status():
+    """Return 'running', 'exited', 'created', 'dead', 'missing', or 'error: ...'."""
+    code, out, err = run_docker("inspect", "-f", "{{.State.Status}}", CONTAINER_NAME)
+    if code == 0:
+        return out
+    if "No such object" in err or "No such container" in err:
+        return "missing"
+    return f"error: {err}"
 
-    def _api_prefix(self):
-        """Detect Docker API version. Falls back to v1.41 (Docker 20.10+)."""
-        if self._api_version:
-            return self._api_version
-        try:
-            code, body = self._raw_request("GET", "/version")
-            if code == 200:
-                data = json.loads(body)
-                ver = data.get("ApiVersion", "1.41")
-                self._api_version = f"/v{ver}"
-                return self._api_version
-        except Exception:
-            pass
-        self._api_version = "/v1.41"
-        return self._api_version
 
-    def get_container_status(self, name):
-        """Return container status string (e.g. 'running', 'exited', 'missing')."""
-        try:
-            prefix = self._api_prefix()
-            code, body = self._raw_request("GET", f"{prefix}/containers/{name}/json")
-            if code == 200:
-                data = json.loads(body)
-                return data.get("State", {}).get("Status", "unknown")
-            elif code == 404:
-                return "missing"
-            else:
-                return f"error({code})"
-        except Exception as e:
-            return f"error({e})"
+def restart_container():
+    """Restart the container. Returns (ok, message)."""
+    code, out, err = run_docker("restart", "-t", "10", CONTAINER_NAME, timeout=60)
+    return code == 0, err or out
 
-    def restart_container(self, name):
-        """Restart container. Returns (success, status_code)."""
-        prefix = self._api_prefix()
-        code, _ = self._raw_request("POST", f"{prefix}/containers/{name}/restart?t=10")
-        return 200 <= code < 300, code
 
-    def start_container(self, name):
-        """Start a stopped container. Returns (success, status_code)."""
-        prefix = self._api_prefix()
-        code, _ = self._raw_request("POST", f"{prefix}/containers/{name}/start")
-        return 200 <= code < 300, code
+def start_container():
+    """Start a stopped container. Returns (ok, message)."""
+    code, out, err = run_docker("start", CONTAINER_NAME, timeout=60)
+    return code == 0, err or out
 
 
 def compose_up():
-    """Call docker compose up -d to create/start a missing container."""
+    """Create/start a missing container via docker compose. Returns (ok, message)."""
     cmd = [
         "docker", "compose",
         "-f", COMPOSE_FILE,
@@ -110,9 +69,9 @@ def compose_up():
         "up", "-d", "--no-build", COMPOSE_SERVICE,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        output = (result.stdout + result.stderr).strip()
-        return result.returncode == 0, output
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        output = (r.stdout + r.stderr).strip()
+        return r.returncode == 0, output
     except FileNotFoundError:
         return False, "docker CLI not found"
     except subprocess.TimeoutExpired:
@@ -122,46 +81,43 @@ def compose_up():
 
 
 def ensure_container():
-    """Check container status and take action. Returns (status, healthy: bool)."""
-    client = DockerClient(DOCKER_SOCKET)
-    status = client.get_container_status(CONTAINER_NAME)
+    """Check and act on container status. Returns (status, healthy)."""
+    status = get_container_status()
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
 
     if status == "running":
         print(f"[watchdog] {ts} — {CONTAINER_NAME}: running ✓")
         return status, True
 
-    elif status in ("exited", "created", "dead"):
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Attempting restart...")
-        ok, code = client.restart_container(CONTAINER_NAME)
+    if status in ("exited", "created", "dead"):
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Restarting...")
+        ok, msg = restart_container()
         if ok:
-            print(f"[watchdog] {ts} — {CONTAINER_NAME}: restarted successfully ✓")
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: restarted ✓")
             return status, True
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: restart failed (code {code}), trying start...")
-        ok2, code2 = client.start_container(CONTAINER_NAME)
+        print(f"[watchdog] {ts} — restart failed ({msg}), trying start...")
+        ok2, msg2 = start_container()
         if ok2:
-            print(f"[watchdog] {ts} — {CONTAINER_NAME}: started successfully ✓")
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: started ✓")
             return status, True
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: restart/start FAILED (code {code}/{code2})")
+        print(f"[watchdog] {ts} — FAILED: restart='{msg}' start='{msg2}'")
         return status, False
 
-    elif status == "missing":
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Calling docker compose up...")
-        ok, output = compose_up()
+    if status == "missing":
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Running docker compose up...")
+        ok, msg = compose_up()
         if ok:
             print(f"[watchdog] {ts} — {CONTAINER_NAME}: created via compose ✓")
             return status, True
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: compose up failed: {output}")
+        print(f"[watchdog] {ts} — compose up failed: {msg}")
         return status, False
 
-    else:
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}")
-        return status, False
+    print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}")
+    return status, False
 
 
 def watchdog_loop():
-    """Background loop: check container, retry aggressively if down."""
-    time.sleep(5)  # brief startup delay
+    time.sleep(5)
     print(f"[watchdog] Started. target='{CONTAINER_NAME}' interval={CHECK_INTERVAL}s retry={RETRY_INTERVAL}s")
 
     while True:
@@ -170,7 +126,7 @@ def watchdog_loop():
             if healthy:
                 time.sleep(CHECK_INTERVAL)
             else:
-                print(f"[watchdog] Target unhealthy, retrying in {RETRY_INTERVAL}s...")
+                print(f"[watchdog] Unhealthy, retrying in {RETRY_INTERVAL}s...")
                 time.sleep(RETRY_INTERVAL)
         except Exception as e:
             print(f"[watchdog] Error: {e}")
@@ -178,43 +134,30 @@ def watchdog_loop():
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    """HTTP handler for manual restart trigger."""
 
     def do_POST(self):
-        try:
-            client = DockerClient(DOCKER_SOCKET)
-            status = client.get_container_status(CONTAINER_NAME)
-            if status == "running":
-                self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' already running"})
-            elif status == "missing":
-                ok, output = compose_up()
-                if ok:
-                    self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' created via compose"})
+        status = get_container_status()
+        if status == "running":
+            self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' already running"})
+        elif status == "missing":
+            ok, msg = compose_up()
+            self._respond(200 if ok else 500, {"status": "ok" if ok else "error", "message": msg})
+        else:
+            ok, msg = restart_container()
+            if not ok:
+                ok2, msg2 = start_container()
+                if ok2:
+                    self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' started"})
                 else:
-                    self._respond(500, {"status": "error", "message": f"compose up failed: {output}"})
+                    self._respond(500, {"status": "error", "message": f"restart: {msg} | start: {msg2}"})
             else:
-                ok, code = client.restart_container(CONTAINER_NAME)
-                if ok:
-                    self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' restarted"})
-                else:
-                    ok2, code2 = client.start_container(CONTAINER_NAME)
-                    if ok2:
-                        self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' started"})
-                    else:
-                        self._respond(500, {"status": "error", "message": f"Failed (code {code}/{code2})"})
-        except Exception as e:
-            self._respond(500, {"status": "error", "message": str(e)})
+                self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' restarted"})
 
     def do_GET(self):
         if self.path == "/health":
             self._respond(200, {"status": "ok"})
         elif self.path == "/status":
-            try:
-                client = DockerClient(DOCKER_SOCKET)
-                status = client.get_container_status(CONTAINER_NAME)
-                self._respond(200, {"container": CONTAINER_NAME, "status": status})
-            except Exception as e:
-                self._respond(500, {"status": "error", "message": str(e)})
+            self._respond(200, {"container": CONTAINER_NAME, "status": get_container_status()})
         else:
             self._respond(405, {"status": "error", "message": "Use POST / or GET /status"})
 
