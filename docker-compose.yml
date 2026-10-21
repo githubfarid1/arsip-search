@@ -42,6 +42,7 @@ services:
     environment:
       - TARGET_CONTAINER=arsip-api
       - CHECK_INTERVAL=1800
+      - RETRY_INTERVAL=30
       - COMPOSE_FILE=/app/docker-compose.yml
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-arsip-search}
       - COMPOSE_SERVICE=api
