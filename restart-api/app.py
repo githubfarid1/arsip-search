@@ -2,6 +2,7 @@
 
 - Background thread checks every CHECK_INTERVAL seconds if target container is running.
 - If stopped/exited, automatically restarts it.
+- If missing (never created), calls docker compose up to recreate it.
 - Also exposes POST / for manual restart trigger.
 - Uses only Python stdlib — no pip dependencies.
 """
@@ -10,6 +11,7 @@ import http.server
 import json
 import socket
 import os
+import subprocess
 import threading
 import time
 
@@ -17,6 +19,9 @@ CONTAINER_NAME = os.getenv("TARGET_CONTAINER", "arsip-api")
 DOCKER_SOCKET = "/var/run/docker.sock"
 PORT = 9999
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "1800"))  # default 30 menit
+COMPOSE_FILE = os.getenv("COMPOSE_FILE", "/app/docker-compose.yml")
+COMPOSE_SERVICE = os.getenv("COMPOSE_SERVICE", "api")
+COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT_NAME", "arsip-search")
 
 
 class DockerClient:
@@ -38,10 +43,8 @@ class DockerClient:
                 break
             response += chunk
         sock.close()
-        # Parse status code from first line
         status_line = response.split(b"\r\n")[0].decode(errors="replace")
         status_code = int(status_line.split(" ")[1]) if " " in status_line else 0
-        # Extract body (after \r\n\r\n)
         body = response.split(b"\r\n\r\n", 1)
         body_str = body[1].decode(errors="replace") if len(body) > 1 else ""
         return status_code, body_str
@@ -71,36 +74,69 @@ class DockerClient:
         return 200 <= code < 300, code
 
 
+def compose_up():
+    """Call docker compose up -d to create/start a missing container."""
+    cmd = [
+        "docker", "compose",
+        "-f", COMPOSE_FILE,
+        "-p", COMPOSE_PROJECT,
+        "up", "-d", "--no-build", COMPOSE_SERVICE,
+    ]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120
+        )
+        output = (result.stdout + result.stderr).strip()
+        return result.returncode == 0, output
+    except FileNotFoundError:
+        return False, "docker CLI not found"
+    except subprocess.TimeoutExpired:
+        return False, "docker compose timed out"
+    except Exception as e:
+        return False, str(e)
+
+
+def ensure_container():
+    """Check container status and take appropriate action. Returns status string."""
+    client = DockerClient(DOCKER_SOCKET)
+    status = client.get_container_status(CONTAINER_NAME)
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    if status == "running":
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: running ✓")
+    elif status in ("exited", "created", "dead"):
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Attempting restart...")
+        ok, code = client.restart_container(CONTAINER_NAME)
+        if ok:
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: restarted successfully ✓")
+        else:
+            ok2, code2 = client.start_container(CONTAINER_NAME)
+            if ok2:
+                print(f"[watchdog] {ts} — {CONTAINER_NAME}: started successfully ✓")
+            else:
+                print(f"[watchdog] {ts} — {CONTAINER_NAME}: restart/start failed (code {code}/{code2})")
+    elif status == "missing":
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Calling docker compose up...")
+        ok, output = compose_up()
+        if ok:
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: created via compose ✓")
+        else:
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: compose up failed: {output}")
+    else:
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}")
+
+    return status
+
+
 def watchdog_loop():
     """Background loop: check container status and restart if needed."""
-    client = DockerClient(DOCKER_SOCKET)
     # Tunggu sebentar saat startup agar Docker socket ready
     time.sleep(10)
     print(f"[watchdog] Started. Checking '{CONTAINER_NAME}' every {CHECK_INTERVAL}s")
 
     while True:
         try:
-            status = client.get_container_status(CONTAINER_NAME)
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-
-            if status == "running":
-                print(f"[watchdog] {ts} — {CONTAINER_NAME}: running ✓")
-            elif status in ("exited", "created", "dead"):
-                print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Attempting restart...")
-                ok, code = client.restart_container(CONTAINER_NAME)
-                if ok:
-                    print(f"[watchdog] {ts} — {CONTAINER_NAME}: restarted successfully ✓")
-                else:
-                    # restart gagal, coba start (mungkin container exited lama)
-                    ok2, code2 = client.start_container(CONTAINER_NAME)
-                    if ok2:
-                        print(f"[watchdog] {ts} — {CONTAINER_NAME}: started successfully ✓")
-                    else:
-                        print(f"[watchdog] {ts} — {CONTAINER_NAME}: restart/start failed (code {code}/{code2})")
-            elif status == "missing":
-                print(f"[watchdog] {ts} — {CONTAINER_NAME}: container not found, skipping")
-            else:
-                print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}")
+            ensure_container()
         except Exception as e:
             print(f"[watchdog] Error: {e}")
 
@@ -116,6 +152,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             status = client.get_container_status(CONTAINER_NAME)
             if status == "running":
                 self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' already running"})
+            elif status == "missing":
+                ok, output = compose_up()
+                if ok:
+                    self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' created via compose"})
+                else:
+                    self._respond(500, {"status": "error", "message": f"compose up failed: {output}"})
             else:
                 ok, code = client.restart_container(CONTAINER_NAME)
                 if ok:

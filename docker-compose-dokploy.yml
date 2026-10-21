@@ -50,8 +50,12 @@ services:
     environment:
       - TARGET_CONTAINER=arsip-api
       - CHECK_INTERVAL=1800
+      - COMPOSE_FILE=/app/docker-compose.yml
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-arsip-search}
+      - COMPOSE_SERVICE=api
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose-dokploy.yml:/app/docker-compose.yml:ro
     restart: unless-stopped
     networks:
       - dokploy-network
