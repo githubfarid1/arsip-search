@@ -50,12 +50,24 @@ def run_cmd(cmd, timeout=60):
 
 def get_container_status():
     """Return 'running', 'exited', 'created', 'dead', 'missing', or 'error: ...'."""
-    code, out, err = run_cmd(["docker", "inspect", "-f", "{{.State.Status}}", CONTAINER_NAME])
-    if code == 0:
-        return out
-    if "No such object" in err or "No such container" in err:
-        return "missing"
-    return f"error: {err}"
+    code, out, err = run_cmd(["docker", "inspect", CONTAINER_NAME])
+    if code != 0:
+        if "No such object" in err or "No such container" in err:
+            return "missing"
+        return f"error: {err}"
+
+    try:
+        data = json.loads(out)
+        # docker inspect returns a list of objects
+        if isinstance(data, list):
+            if not data:
+                return "missing"
+            state = data[0].get("State", {})
+        else:
+            state = data.get("State", {})
+        return state.get("Status", "unknown")
+    except (json.JSONDecodeError, AttributeError, IndexError) as e:
+        return f"error: bad inspect output ({e})"
 
 
 def restart_container():
