@@ -58,15 +58,27 @@ def get_container_status():
 
     try:
         data = json.loads(out)
-        # docker inspect returns a list of objects
         if isinstance(data, list):
             if not data:
                 return "missing"
-            state = data[0].get("State", {})
+            item = data[0]
         else:
-            state = data.get("State", {})
-        return state.get("Status", "unknown")
+            item = data
+
+        state = item.get("State", {})
+        if not isinstance(state, dict):
+            print(f"[debug] State is not dict: {repr(state)}")
+            return "unknown"
+
+        status = state.get("Status")
+        if not status:
+            print(f"[debug] No Status in State. Keys: {list(state.keys())}")
+            print(f"[debug] Raw inspect (first 500): {out[:500]}")
+            return "unknown"
+        return status
     except (json.JSONDecodeError, AttributeError, IndexError) as e:
+        print(f"[debug] Parse error: {e}")
+        print(f"[debug] Raw output (first 500): {out[:500]}")
         return f"error: bad inspect output ({e})"
 
 
@@ -182,8 +194,12 @@ def ensure_container():
         print(f"[watchdog] {ts} — restart/start FAILED: '{msg}' | '{msg2}'")
         return status, False
 
-    if status == "missing":
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Recreating...")
+    if status in ("missing", "unknown") or status.startswith("error"):
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Recreating...")
+        # Remove leftover container if exists (unknown/error state)
+        if status != "missing":
+            run_cmd(["docker", "rm", "-f", CONTAINER_NAME], timeout=30)
+            print(f"[watchdog] {ts} — removed leftover container")
         ok, msg = create_container()
         if ok:
             print(f"[watchdog] {ts} — {CONTAINER_NAME}: {msg}")
