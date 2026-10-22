@@ -1,11 +1,11 @@
 """Docker container watchdog + restart service.
 
-Uses Docker CLI via subprocess (already installed in image).
+Uses Docker CLI via subprocess.
 - Background thread checks if target container is running.
-- If stopped/exited, automatically restarts it.
-- If missing (never created), calls docker compose up to recreate it.
-- Aggressive retry (30s) while target is down; back to CHECK_INTERVAL when healthy.
-- Also exposes POST / for manual restart trigger and GET /status.
+- If stopped/exited → restarts it.
+- If missing (removed/never created) → recreates via 'docker run' (primary) or 'docker compose up' (fallback).
+- Aggressive retry (30s) while down; back to CHECK_INTERVAL when healthy.
+- Exposes POST / for manual trigger, GET /status and GET /health.
 """
 
 import http.server
@@ -19,19 +19,29 @@ CONTAINER_NAME = os.getenv("TARGET_CONTAINER", "arsip-api")
 PORT = 9999
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "1800"))
 RETRY_INTERVAL = int(os.getenv("RETRY_INTERVAL", "30"))
-COMPOSE_FILE = os.getenv("COMPOSE_FILE", "/app/docker-compose.yml")
+
+# --- docker run config (primary method for missing container) ---
+TARGET_IMAGE = os.getenv("TARGET_IMAGE", "arsip-api:latest")
+TARGET_NETWORK = os.getenv("TARGET_NETWORK", "")
+TARGET_PORTS = os.getenv("TARGET_PORTS", "")          # "8888:8888" or ""
+TARGET_ENV_FILE = os.getenv("TARGET_ENV_FILE", "")     # path to .env file
+TARGET_ENV_VARS = os.getenv("TARGET_ENV_VARS", "")    # "K1=V1,K2=V2"
+TARGET_VOLUMES = os.getenv("TARGET_VOLUMES", "")      # "/host:/container:opts,/host2:/c2"
+TARGET_RESTART_POLICY = os.getenv("TARGET_RESTART_POLICY", "unless-stopped")
+
+# --- docker compose config (fallback method) ---
+COMPOSE_FILE = os.getenv("COMPOSE_FILE", "")
 COMPOSE_SERVICE = os.getenv("COMPOSE_SERVICE", "api")
-COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT_NAME", "arsip-search")
+COMPOSE_PROJECT = os.getenv("COMPOSE_PROJECT_NAME", "")
 
 
-def run_docker(*args, timeout=30):
-    """Run a docker CLI command. Returns (returncode, stdout, stderr)."""
-    cmd = ["docker"] + list(args)
+def run_cmd(cmd, timeout=60):
+    """Run a command. Returns (returncode, stdout, stderr)."""
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout.strip(), r.stderr.strip()
     except FileNotFoundError:
-        return -1, "", "docker CLI not found"
+        return -1, "", f"command not found: {cmd[0]}"
     except subprocess.TimeoutExpired:
         return -1, "", "timeout"
     except Exception as e:
@@ -40,7 +50,7 @@ def run_docker(*args, timeout=30):
 
 def get_container_status():
     """Return 'running', 'exited', 'created', 'dead', 'missing', or 'error: ...'."""
-    code, out, err = run_docker("inspect", "-f", "{{.State.Status}}", CONTAINER_NAME)
+    code, out, err = run_cmd(["docker", "inspect", "-f", "{{.State.Status}}", CONTAINER_NAME])
     if code == 0:
         return out
     if "No such object" in err or "No such container" in err:
@@ -49,51 +59,92 @@ def get_container_status():
 
 
 def restart_container():
-    """Restart the container. Returns (ok, message)."""
-    code, out, err = run_docker("restart", "-t", "10", CONTAINER_NAME, timeout=60)
+    code, out, err = run_cmd(["docker", "restart", "-t", "10", CONTAINER_NAME], timeout=60)
     return code == 0, err or out
 
 
 def start_container():
-    """Start a stopped container. Returns (ok, message)."""
-    code, out, err = run_docker("start", CONTAINER_NAME, timeout=60)
+    code, out, err = run_cmd(["docker", "start", CONTAINER_NAME], timeout=60)
     return code == 0, err or out
 
 
+def docker_run_create():
+    """Create + start container directly via docker run. Returns (ok, message)."""
+    cmd = ["docker", "run", "-d",
+           "--name", CONTAINER_NAME,
+           "--restart", TARGET_RESTART_POLICY]
+
+    if TARGET_NETWORK:
+        cmd += ["--network", TARGET_NETWORK]
+
+    if TARGET_PORTS:
+        for p in TARGET_PORTS.split(","):
+            p = p.strip()
+            if p:
+                cmd += ["-p", p]
+
+    if TARGET_VOLUMES:
+        for v in TARGET_VOLUMES.split(","):
+            v = v.strip()
+            if v:
+                cmd += ["-v", v]
+
+    if TARGET_ENV_FILE:
+        cmd += ["--env-file", TARGET_ENV_FILE]
+
+    if TARGET_ENV_VARS:
+        for e in TARGET_ENV_VARS.split(","):
+            e = e.strip()
+            if e:
+                cmd += ["-e", e]
+
+    cmd.append(TARGET_IMAGE)
+
+    cmd_str = " ".join(cmd)
+    print(f"[docker-run] {cmd_str}")
+    code, out, err = run_cmd(cmd, timeout=120)
+    output = (out + " " + err).strip()
+    return code == 0, output
+
+
 def compose_up():
-    """Create/start a missing container via docker compose. Returns (ok, message)."""
-    base = [
-        "docker", "compose",
-        "-f", COMPOSE_FILE,
-        "-p", COMPOSE_PROJECT,
-        "up", "-d",
-    ]
-    results = []
+    """Fallback: create via docker compose. Returns (ok, message)."""
+    if not COMPOSE_FILE:
+        return False, "COMPOSE_FILE not set"
 
-    for label, cmd in [
-        ("with build", base + [COMPOSE_SERVICE]),
-        ("no build", base + ["--no-build", COMPOSE_SERVICE]),
-    ]:
-        cmd_str = " ".join(cmd)
-        print(f"[compose] Trying ({label}): {cmd_str}")
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            output = (r.stdout + r.stderr).strip()
-            if r.returncode == 0:
-                print(f"[compose] ✓ Success ({label})")
-                return True, output
-            results.append(f"[{label}] rc={r.returncode}: {output}")
-            print(f"[compose] ✗ Failed ({label}): {output}")
-        except FileNotFoundError:
-            return False, "docker CLI not found"
-        except subprocess.TimeoutExpired:
-            results.append(f"[{label}] timeout")
-            print(f"[compose] ✗ Timeout ({label})")
-        except Exception as e:
-            results.append(f"[{label}] {e}")
-            print(f"[compose] ✗ Error ({label}): {e}")
+    base = ["docker", "compose", "-f", COMPOSE_FILE, "up", "-d"]
+    if COMPOSE_PROJECT:
+        base += ["-p", COMPOSE_PROJECT]
 
-    return False, " | ".join(results)
+    for label, extra in [("with build", [COMPOSE_SERVICE]), ("no build", ["--no-build", COMPOSE_SERVICE])]:
+        cmd = base + extra
+        print(f"[compose] Trying ({label}): {' '.join(cmd)}")
+        code, out, err = run_cmd(cmd, timeout=180)
+        output = (out + " " + err).strip()
+        if code == 0:
+            print(f"[compose] ✓ Success ({label})")
+            return True, output
+        print(f"[compose] ✗ Failed ({label}): {output}")
+
+    return False, output
+
+
+def create_container():
+    """Try to create missing container: docker run first, then compose."""
+    # Method 1: docker run (direct, reliable)
+    ok, msg = docker_run_create()
+    if ok:
+        return True, f"created via docker run: {msg}"
+
+    print(f"[watchdog] docker run failed: {msg}")
+    print(f"[watchdog] Trying docker compose fallback...")
+
+    # Method 2: docker compose up
+    ok2, msg2 = compose_up()
+    if ok2:
+        return True, f"created via compose: {msg2}"
+
+    return False, f"docker run: {msg} | compose: {msg2}"
 
 
 def ensure_container():
@@ -116,16 +167,16 @@ def ensure_container():
         if ok2:
             print(f"[watchdog] {ts} — {CONTAINER_NAME}: started ✓")
             return status, True
-        print(f"[watchdog] {ts} — FAILED: restart='{msg}' start='{msg2}'")
+        print(f"[watchdog] {ts} — restart/start FAILED: '{msg}' | '{msg2}'")
         return status, False
 
     if status == "missing":
-        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Running docker compose up...")
-        ok, msg = compose_up()
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: missing! Recreating...")
+        ok, msg = create_container()
         if ok:
-            print(f"[watchdog] {ts} — {CONTAINER_NAME}: created via compose ✓")
+            print(f"[watchdog] {ts} — {CONTAINER_NAME}: {msg}")
             return status, True
-        print(f"[watchdog] {ts} — compose up failed: {msg}")
+        print(f"[watchdog] {ts} — {CONTAINER_NAME}: recreate FAILED: {msg}")
         return status, False
 
     print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}")
@@ -135,6 +186,9 @@ def ensure_container():
 def watchdog_loop():
     time.sleep(5)
     print(f"[watchdog] Started. target='{CONTAINER_NAME}' interval={CHECK_INTERVAL}s retry={RETRY_INTERVAL}s")
+    print(f"[watchdog] Create config: image={TARGET_IMAGE} network={TARGET_NETWORK} ports={TARGET_PORTS}")
+    print(f"[watchdog] Volumes: {TARGET_VOLUMES}")
+    print(f"[watchdog] EnvFile: {TARGET_ENV_FILE} EnvVars: {'yes' if TARGET_ENV_VARS else 'no'}")
 
     while True:
         try:
@@ -156,7 +210,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if status == "running":
             self._respond(200, {"status": "ok", "message": f"'{CONTAINER_NAME}' already running"})
         elif status == "missing":
-            ok, msg = compose_up()
+            ok, msg = create_container()
             self._respond(200 if ok else 500, {"status": "ok" if ok else "error", "message": msg})
         else:
             ok, msg = restart_container()

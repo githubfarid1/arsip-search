@@ -52,6 +52,13 @@ services:
       - TARGET_CONTAINER=arsip-api
       - CHECK_INTERVAL=1800
       - RETRY_INTERVAL=30
+      # docker run config (primary recreate method)
+      - TARGET_IMAGE=arsip-api:latest
+      - TARGET_NETWORK=dokploy-network
+      - TARGET_ENV_VARS=MEILI_URL=http://meilisearch:7700,MEILI_KEY=${MEILI_MASTER_KEY:-arsipsearch2024},DB_HOST=${DB_HOST:-mysql-arsip},DB_PORT=${DB_PORT:-3306},DB_USER=${DB_USER:-root},DB_PASSWORD=${DB_PASSWORD:-root123},DB_NAME=${DB_NAME:-arsipserverdb2},PDF_BASE_PATH=${PDF_BASE_PATH:-/pdfs}
+      - TARGET_VOLUMES=${PDF_HOST_PATH:-/home/arsip/nas-media}:/pdfs:rslave
+      - TARGET_RESTART_POLICY=unless-stopped
+      # docker compose config (fallback)
       - COMPOSE_FILE=/project/docker-compose-dokploy.yml
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-arsip-search}
       - COMPOSE_SERVICE=api

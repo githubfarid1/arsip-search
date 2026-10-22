@@ -44,6 +44,14 @@ services:
       - TARGET_CONTAINER=arsip-api
       - CHECK_INTERVAL=1800
       - RETRY_INTERVAL=30
+      # docker run config (primary recreate method)
+      - TARGET_IMAGE=arsip-api:latest
+      - TARGET_NETWORK=arsip-network
+      - TARGET_PORTS=8888:8888
+      - TARGET_ENV_FILE=/project/api/.env
+      - TARGET_VOLUMES=/home/arsip/nas-media:/pdfs:rslave
+      - TARGET_RESTART_POLICY=unless-stopped
+      # docker compose config (fallback)
       - COMPOSE_FILE=/project/docker-compose.yml
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-arsip-search}
       - COMPOSE_SERVICE=api
