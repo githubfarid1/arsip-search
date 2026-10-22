@@ -154,21 +154,24 @@ def compose_up():
 
 
 def create_container():
-    """Try to create missing container: docker run first, then compose."""
-    # Method 1: docker run (direct, reliable)
-    ok, msg = docker_run_create()
-    if ok:
-        return True, f"created via docker run: {msg}"
+    """Try to create missing container: compose first (managed), then docker run."""
+    # Remove leftover container if any (from previous docker run or broken state)
+    run_cmd(["docker", "rm", "-f", CONTAINER_NAME], timeout=30)
 
-    print(f"[watchdog] docker run failed: {msg}")
-    print(f"[watchdog] Trying docker compose fallback...")
+    # Method 1: docker compose (container is compose-managed, no deploy conflict)
+    if COMPOSE_FILE:
+        ok, msg = compose_up()
+        if ok:
+            return True, f"created via compose: {msg}"
+        print(f"[watchdog] compose failed: {msg}")
+        print(f"[watchdog] Trying docker run fallback...")
 
-    # Method 2: docker compose up
-    ok2, msg2 = compose_up()
+    # Method 2: docker run (unmanaged, last resort)
+    ok2, msg2 = docker_run_create()
     if ok2:
-        return True, f"created via compose: {msg2}"
+        return True, f"created via docker run: {msg2}"
 
-    return False, f"docker run: {msg} | compose: {msg2}"
+    return False, f"compose: {msg if COMPOSE_FILE else 'not configured'} | docker run: {msg2}"
 
 
 def ensure_container():
@@ -196,10 +199,6 @@ def ensure_container():
 
     if status in ("missing", "unknown") or status.startswith("error"):
         print(f"[watchdog] {ts} — {CONTAINER_NAME}: {status}! Recreating...")
-        # Remove leftover container if exists (unknown/error state)
-        if status != "missing":
-            run_cmd(["docker", "rm", "-f", CONTAINER_NAME], timeout=30)
-            print(f"[watchdog] {ts} — removed leftover container")
         ok, msg = create_container()
         if ok:
             print(f"[watchdog] {ts} — {CONTAINER_NAME}: {msg}")
