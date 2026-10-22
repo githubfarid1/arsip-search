@@ -14,6 +14,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    image: arsip-api:latest
     container_name: arsip-api
     environment:
       - MEILI_URL=http://meilisearch:7700
@@ -51,12 +52,12 @@ services:
       - TARGET_CONTAINER=arsip-api
       - CHECK_INTERVAL=1800
       - RETRY_INTERVAL=30
-      - COMPOSE_FILE=/app/docker-compose.yml
+      - COMPOSE_FILE=/project/docker-compose-dokploy.yml
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-arsip-search}
       - COMPOSE_SERVICE=api
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./docker-compose-dokploy.yml:/app/docker-compose.yml:ro
+      - ./:/project:ro
     restart: unless-stopped
     networks:
       - dokploy-network

@@ -62,22 +62,38 @@ def start_container():
 
 def compose_up():
     """Create/start a missing container via docker compose. Returns (ok, message)."""
-    cmd = [
+    base = [
         "docker", "compose",
         "-f", COMPOSE_FILE,
         "-p", COMPOSE_PROJECT,
-        "up", "-d", "--no-build", COMPOSE_SERVICE,
+        "up", "-d",
     ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        output = (r.stdout + r.stderr).strip()
-        return r.returncode == 0, output
-    except FileNotFoundError:
-        return False, "docker CLI not found"
-    except subprocess.TimeoutExpired:
-        return False, "docker compose timed out"
-    except Exception as e:
-        return False, str(e)
+    results = []
+
+    for label, cmd in [
+        ("with build", base + [COMPOSE_SERVICE]),
+        ("no build", base + ["--no-build", COMPOSE_SERVICE]),
+    ]:
+        cmd_str = " ".join(cmd)
+        print(f"[compose] Trying ({label}): {cmd_str}")
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            output = (r.stdout + r.stderr).strip()
+            if r.returncode == 0:
+                print(f"[compose] ✓ Success ({label})")
+                return True, output
+            results.append(f"[{label}] rc={r.returncode}: {output}")
+            print(f"[compose] ✗ Failed ({label}): {output}")
+        except FileNotFoundError:
+            return False, "docker CLI not found"
+        except subprocess.TimeoutExpired:
+            results.append(f"[{label}] timeout")
+            print(f"[compose] ✗ Timeout ({label})")
+        except Exception as e:
+            results.append(f"[{label}] {e}")
+            print(f"[compose] ✗ Error ({label}): {e}")
+
+    return False, " | ".join(results)
 
 
 def ensure_container():
