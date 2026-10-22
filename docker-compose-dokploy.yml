@@ -77,7 +77,7 @@ services:
     ports:
       - "8007:8007"
     environment:
-      - NEXT_PUBLIC_API_URL=http://api:8888
+      - NEXT_PUBLIC_API_URL=http://arsip-api:8888
     restart: unless-stopped
     depends_on:
       - api
