@@ -128,11 +128,19 @@ def docker_run_create():
     print(f"[docker-run] {cmd_str}")
     code, out, err = run_cmd(cmd, timeout=120)
     output = (out + " " + err).strip()
+
+    # Handle name conflict: remove leftover and retry once
+    if code != 0 and "already in use" in output:
+        print(f"[docker-run] Name conflict! Removing leftover container...")
+        run_cmd(["docker", "rm", "-f", CONTAINER_NAME], timeout=30)
+        code, out, err = run_cmd(cmd, timeout=120)
+        output = (out + " " + err).strip()
+
     return code == 0, output
 
 
 def compose_up():
-    """Fallback: create via docker compose. Returns (ok, message)."""
+    """Create via docker compose. Returns (ok, message)."""
     if not COMPOSE_FILE:
         return False, "COMPOSE_FILE not set"
 
@@ -145,6 +153,14 @@ def compose_up():
         print(f"[compose] Trying ({label}): {' '.join(cmd)}")
         code, out, err = run_cmd(cmd, timeout=180)
         output = (out + " " + err).strip()
+
+        # Handle name conflict: remove leftover and retry once
+        if code != 0 and "already in use" in output:
+            print(f"[compose] Name conflict! Removing leftover container...")
+            run_cmd(["docker", "rm", "-f", CONTAINER_NAME], timeout=30)
+            code, out, err = run_cmd(cmd, timeout=180)
+            output = (out + " " + err).strip()
+
         if code == 0:
             print(f"[compose] ✓ Success ({label})")
             return True, output
