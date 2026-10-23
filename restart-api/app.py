@@ -92,8 +92,29 @@ def start_container():
     return code == 0, err or out
 
 
+def find_api_image():
+    """Find the API image. Returns image name or TARGET_IMAGE if found, else None."""
+    # Check if configured image exists
+    code, out, err = run_cmd(["docker", "image", "inspect", TARGET_IMAGE])
+    if code == 0:
+        return TARGET_IMAGE
+
+    # Search for images containing 'api' in the name
+    code, out, err = run_cmd(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"])
+    if code == 0:
+        candidates = [l.strip() for l in out.splitlines() if l.strip() and "api" in l.lower() and "restart" not in l.lower()]
+        if candidates:
+            return candidates[0]
+
+    return None
+
+
 def docker_run_create():
     """Create + start container directly via docker run. Returns (ok, message)."""
+    image = find_api_image()
+    if not image:
+        return False, f"no API image found (tried '{TARGET_IMAGE}')"
+
     cmd = ["docker", "run", "-d",
            "--name", CONTAINER_NAME,
            "--restart", TARGET_RESTART_POLICY]
@@ -122,9 +143,10 @@ def docker_run_create():
             if e:
                 cmd += ["-e", e]
 
-    cmd.append(TARGET_IMAGE)
+    cmd.append(image)
 
     cmd_str = " ".join(cmd)
+    print(f"[docker-run] Using image: {image}")
     print(f"[docker-run] {cmd_str}")
     code, out, err = run_cmd(cmd, timeout=120)
     output = (out + " " + err).strip()
@@ -144,9 +166,11 @@ def compose_up():
     if not COMPOSE_FILE:
         return False, "COMPOSE_FILE not set"
 
-    base = ["docker", "compose", "-f", COMPOSE_FILE, "up", "-d"]
+    # -p must come BEFORE 'up' subcommand (it's a compose flag, not up flag)
+    base = ["docker", "compose", "-f", COMPOSE_FILE]
     if COMPOSE_PROJECT:
         base += ["-p", COMPOSE_PROJECT]
+    base += ["up", "-d"]
 
     for label, extra in [("with build", [COMPOSE_SERVICE]), ("no build", ["--no-build", COMPOSE_SERVICE])]:
         cmd = base + extra
